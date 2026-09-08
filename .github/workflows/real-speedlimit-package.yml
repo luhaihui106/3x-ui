@@ -1,0 +1,186 @@
+name: Real Speed Limit V1 Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/real-client-speed-limit-v1
+    paths:
+      - install-speedlimit.sh
+      - .github/workflows/real-speedlimit-package.yml
+      - go.mod
+      - go.sum
+      - "**.go"
+      - "frontend/**"
+      - x-ui.sh
+      - update.sh
+      - x-ui.service.debian
+      - x-ui.service.arch
+      - x-ui.service.rhel
+
+permissions:
+  contents: write
+
+concurrency:
+  group: real-speedlimit-v1-package
+  cancel-in-progress: true
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 3X-UI fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout custom Xray-core
+        uses: actions/checkout@v4
+        with:
+          repository: luhaihui106/Xray-core
+          ref: 05f4c02c8a5ab773a0c8c5bfab79759cced08fe7
+          path: xray-core
+          fetch-depth: 1
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools curl tar unzip ca-certificates
+
+      - name: Verify custom Xray module binding
+        run: |
+          grep -q 'replace github.com/xtls/xray-core => github.com/luhaihui106/Xray-core' go.mod
+          grep -q 'speed_limit_up_mbps' xray-core/common/protocol/user.proto
+          grep -q 'speed_limit_down_mbps' xray-core/common/protocol/user.proto
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build static 3X-UI amd64
+        run: |
+          export CGO_ENABLED=1
+          export GOOS=linux
+          export GOARCH=amd64
+          export CC=musl-gcc
+          LDFLAGS="-w -s -linkmode external -extldflags '-static' -X github.com/mhsanaei/3x-ui/v3/internal/config.buildCommit=${GITHUB_SHA::8} -X github.com/mhsanaei/3x-ui/v3/internal/config.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -buildvcs=true -ldflags "$LDFLAGS" -o xui-release .
+          file xui-release
+          if ldd xui-release 2>&1 | grep -vq 'not a dynamic executable'; then
+            echo 'panel binary is not static' >&2
+            exit 1
+          fi
+
+      - name: Build custom Xray-core amd64
+        working-directory: xray-core
+        run: |
+          export CGO_ENABLED=0
+          export GOOS=linux
+          export GOARCH=amd64
+          go test ./app/limiter ./common/protocol
+          go build -trimpath -ldflags='-s -w' -o ../xray-speedlimit ./main
+          ../xray-speedlimit version | head -n 5
+
+      - name: Assemble package
+        run: |
+          set -euxo pipefail
+          mkdir -p x-ui/bin
+          cp xui-release x-ui/x-ui
+          cp x-ui.service.debian x-ui/
+          cp x-ui.service.arch x-ui/
+          cp x-ui.service.rhel x-ui/
+          cp x-ui.sh x-ui/
+          cp xray-speedlimit x-ui/bin/xray-linux-amd64
+          chmod 755 x-ui/x-ui x-ui/x-ui.sh x-ui/bin/xray-linux-amd64
+
+          # Keep upstream data assets, but never replace our custom xray binary.
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
+            -o x-ui/bin/geoip.dat \
+            https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
+            -o x-ui/bin/geosite.dat \
+            https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+
+          cat > x-ui/bin/REAL_SPEEDLIMIT_V1 <<EOF
+          build=real-client-speed-limit-v1
+          panel_base=v3.7.0
+          panel_commit=${GITHUB_SHA}
+          xray_base=v26.7.28
+          xray_commit=05f4c02c8a5ab773a0c8c5bfab79759cced08fe7
+          arch=amd64
+          limits=aggregate-per-client-upload-download-mbps
+          EOF
+
+          # The regular x-ui menu must not silently fetch upstream binaries.
+          # Redirect its installer/menu refresh URLs to this fork's development branch.
+          sed -i \
+            -e 's#https://raw.githubusercontent.com/MHSanaei/3x-ui/main/#https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/#g' \
+            -e 's#https://raw.githubusercontent.com/mhsanaei/3x-ui/main/#https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/#g' \
+            x-ui/x-ui.sh
+
+          tar -zcf x-ui-linux-amd64.tar.gz x-ui
+          sha256sum x-ui-linux-amd64.tar.gz > x-ui-linux-amd64.tar.gz.sha256
+
+      - name: Package smoke checks
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/xui-package-check
+          mkdir -p /tmp/xui-package-check
+          tar -xzf x-ui-linux-amd64.tar.gz -C /tmp/xui-package-check
+          test -x /tmp/xui-package-check/x-ui/x-ui
+          test -x /tmp/xui-package-check/x-ui/bin/xray-linux-amd64
+          test -f /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
+          grep -q 'real-client-speed-limit-v1' /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
+          /tmp/xui-package-check/x-ui/bin/xray-linux-amd64 version | head -n 5
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-speedlimit-v1-amd64
+          path: |
+            x-ui-linux-amd64.tar.gz
+            x-ui-linux-amd64.tar.gz.sha256
+          retention-days: 14
+
+      - name: Publish rolling dev-latest prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -f dev-latest "$GITHUB_SHA"
+          git push --force origin refs/tags/dev-latest
+
+          if gh release view dev-latest >/dev/null 2>&1; then
+            gh release edit dev-latest \
+              --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
+              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速。请勿直接覆盖 X-Panel 生产机。' \
+              --prerelease
+          else
+            gh release create dev-latest \
+              --target "$GITHUB_SHA" \
+              --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
+              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速。请勿直接覆盖 X-Panel 生产机。' \
+              --prerelease
+          fi
+
+          gh release upload dev-latest \
+            x-ui-linux-amd64.tar.gz \
+            x-ui-linux-amd64.tar.gz.sha256 \
+            --clobber
