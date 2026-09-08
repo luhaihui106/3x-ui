@@ -85,6 +85,34 @@ func getOptionalUserString(user map[string]any, key string) (string, error) {
 	return strValue, nil
 }
 
+func getOptionalUserUint32(user map[string]any, key string) (uint32, error) {
+	value, ok := user[key]
+	if !ok || value == nil {
+		return 0, nil
+	}
+	switch v := value.(type) {
+	case uint32:
+		return v, nil
+	case uint64:
+		if v <= math.MaxUint32 {
+			return uint32(v), nil
+		}
+	case int:
+		if v >= 0 && uint64(v) <= math.MaxUint32 {
+			return uint32(v), nil
+		}
+	case int64:
+		if v >= 0 && uint64(v) <= math.MaxUint32 {
+			return uint32(v), nil
+		}
+	case float64:
+		if v >= 0 && v <= math.MaxUint32 && v == math.Trunc(v) {
+			return uint32(v), nil
+		}
+	}
+	return 0, fmt.Errorf("invalid uint32 user field %q: %T", key, value)
+}
+
 // Init connects to the Xray API server and initializes handler and stats service clients.
 func (x *XrayAPI) Init(apiPort int) error {
 	if apiPort <= 0 || apiPort > math.MaxUint16 {
@@ -688,14 +716,25 @@ func (x *XrayAPI) AddUser(Protocol string, inboundTag string, user map[string]an
 		_ = x.RemoveUser(inboundTag, userEmail)
 	}
 
+	upMbps, err := getOptionalUserUint32(user, "speed_limit_up_mbps")
+	if err != nil {
+		return err
+	}
+	downMbps, err := getOptionalUserUint32(user, "speed_limit_down_mbps")
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), handlerRPCTimeout)
 	defer cancel()
 	_, err = client.AlterInbound(ctx, &command.AlterInboundRequest{
 		Tag: inboundTag,
 		Operation: serial.ToTypedMessage(&command.AddUserOperation{
 			User: &protocol.User{
-				Email:   userEmail,
-				Account: account,
+				Email:              userEmail,
+				Account:            account,
+				SpeedLimitUpMbps:   upMbps,
+				SpeedLimitDownMbps: downMbps,
 			},
 		}),
 	})

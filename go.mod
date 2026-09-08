@@ -112,3 +112,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
+
+replace github.com/xtls/xray-core => github.com/luhaihui106/Xray-core v0.0.0-20260908132148-05f4c02c8a5a
