@@ -1,0 +1,69 @@
+name: real-speed-limit-v1
+
+on:
+  push:
+    branches:
+      - feature/real-client-speed-limit-v1
+    paths:
+      - .github/real-speedlimit/**
+      - .github/workflows/real-speed-limit-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/real-client-speed-limit-v1
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply backend/frontend patches
+        run: |
+          python3 .github/real-speedlimit/patch_backend.py
+          python3 .github/real-speedlimit/patch_frontend.py
+          gofmt -w \
+            internal/database/model/model.go \
+            internal/web/service/client_link.go \
+            internal/web/service/client_crud.go \
+            internal/web/service/client_paging.go \
+            internal/web/service/xray.go \
+            internal/web/runtime/local.go \
+            internal/web/service/client_inbound_apply.go \
+            internal/web/service/server.go
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test and build panel
+        run: |
+          go test ./internal/database/model ./internal/web/service
+          go build ./...
+
+      - name: Commit generated source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/database/model internal/web/service internal/web/runtime internal/web/translation frontend/src internal/web/dist
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit"
+          else
+            git commit -m "feat: add real per-client upload/download limits"
+            git push origin HEAD:feature/real-client-speed-limit-v1
+          fi
