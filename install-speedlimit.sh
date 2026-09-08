@@ -191,6 +191,149 @@ cmd_status() {
   fi
 }
 
+cmd_doctor() {
+  need_root
+  local failed=0 warned=0 menu_file db='/etc/x-ui/x-ui.db'
+
+  echo -e "${BLUE}================================================${PLAIN}"
+  echo -e "${GREEN}  3X-UI 真限速 V1 · 一键体检${PLAIN}"
+  echo -e "${BLUE}================================================${PLAIN}"
+
+  if [[ "$(arch_name)" == 'amd64' ]]; then
+    log "架构支持：$(uname -m)"
+  else
+    warn "当前架构尚未纳入 V1 发布：$(uname -m)"
+    failed=1
+  fi
+
+  if [[ -x /usr/local/x-ui/x-ui ]]; then
+    log '面板二进制存在。'
+  else
+    warn '面板二进制缺失：/usr/local/x-ui/x-ui'
+    failed=1
+  fi
+
+  if [[ -x /usr/local/x-ui/bin/xray-linux-amd64 ]]; then
+    log '自定义 Xray 二进制存在。'
+    /usr/local/x-ui/bin/xray-linux-amd64 version 2>/dev/null | head -n 3 || true
+  else
+    warn '自定义 Xray 二进制缺失。'
+    failed=1
+  fi
+
+  if [[ -f "$MARKER" ]]; then
+    log 'REAL_SPEEDLIMIT_V1 构建标记存在。'
+    for required in \
+      'build=real-client-speed-limit-v1' \
+      'xray_commit=05f4c02c8a5ab773a0c8c5bfab79759cced08fe7' \
+      'limits=aggregate-per-client-upload-download-mbps'; do
+      if grep -Fq "$required" "$MARKER"; then
+        log "构建标记匹配：$required"
+      else
+        warn "构建标记不匹配：$required"
+        failed=1
+      fi
+    done
+  else
+    warn 'REAL_SPEEDLIMIT_V1 构建标记不存在。'
+    failed=1
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet x-ui; then
+      log 'x-ui 服务：active'
+    else
+      warn 'x-ui 服务不是 active。最近日志如下：'
+      journalctl -u x-ui -n 20 --no-pager 2>/dev/null || true
+      failed=1
+    fi
+  else
+    warn '系统没有 systemctl，跳过 systemd 状态检查。'
+    warned=1
+  fi
+
+  menu_file='/usr/local/x-ui/x-ui.sh'
+  [[ -f "$menu_file" ]] || menu_file='/usr/bin/x-ui'
+  if [[ -f "$menu_file" ]]; then
+    if grep -Fq 'REAL_SPEEDLIMIT_V1_MENU_GUARD' "$menu_file"; then
+      log '普通 x-ui 菜单已启用自定义更新保护。'
+    else
+      warn "菜单缺少限速版更新保护标记：$menu_file"
+      failed=1
+    fi
+    if grep -Eq 'MHSanaei/3x-ui/main/update.sh|MHSanaei/3x-ui/raw/main/x-ui.sh' "$menu_file"; then
+      warn '菜单仍存在官方更新逃生口，禁止继续正式限速测试。'
+      failed=1
+    else
+      log '菜单未发现官方更新逃生口。'
+    fi
+  else
+    warn '未找到 x-ui 菜单脚本。'
+    failed=1
+  fi
+
+  if [[ -f "$db" ]]; then
+    log "SQLite 数据库存在：$db"
+    if command -v sqlite3 >/dev/null 2>&1; then
+      local cols
+      cols="$(sqlite3 "$db" "PRAGMA table_info(clients);" 2>/dev/null || true)"
+      if echo "$cols" | grep -q 'speed_limit_up_mbps' && echo "$cols" | grep -q 'speed_limit_down_mbps'; then
+        log '数据库限速字段已完成迁移。'
+      else
+        warn '数据库尚未发现上下行限速字段；请确认面板已用当前测试版成功启动过。'
+        failed=1
+      fi
+      local integrity
+      integrity="$(sqlite3 "$db" 'PRAGMA integrity_check;' 2>/dev/null || true)"
+      if [[ "$integrity" == 'ok' ]]; then
+        log 'SQLite integrity_check：ok'
+      else
+        warn "SQLite 完整性检查结果：${integrity:-无法读取}"
+        failed=1
+      fi
+    else
+      warn '未安装 sqlite3，跳过数据库字段/完整性深度检查。'
+      warned=1
+    fi
+  else
+    # PostgreSQL installations do not use the default SQLite file.
+    if grep -Rqs '^XUI_DB_TYPE=postgres' /etc/default/x-ui /etc/sysconfig/x-ui /etc/conf.d/x-ui 2>/dev/null; then
+      info '检测到 PostgreSQL 模式；V1 doctor 当前只做文件/服务/构建检查，不直接读取 PostgreSQL。'
+      warned=1
+    else
+      warn '未找到默认 SQLite 数据库。'
+      failed=1
+    fi
+  fi
+
+  if [[ -f /usr/local/x-ui/bin/config.json ]]; then
+    if /usr/local/x-ui/bin/xray-linux-amd64 run -test -config /usr/local/x-ui/bin/config.json >/tmp/xui-speedlimit-xray-test.log 2>&1; then
+      log '当前 Xray config.json 语法测试通过。'
+    else
+      warn '当前 Xray config.json 测试失败：'
+      tail -n 20 /tmp/xui-speedlimit-xray-test.log 2>/dev/null || true
+      failed=1
+    fi
+    rm -f /tmp/xui-speedlimit-xray-test.log
+  else
+    warn '未发现 /usr/local/x-ui/bin/config.json，跳过 Xray 配置测试。'
+    warned=1
+  fi
+
+  echo
+  if [[ $failed -eq 0 ]]; then
+    if [[ $warned -eq 0 ]]; then
+      log '体检结论：PASS，可以进入 Reality/Vision 实机限速验收。'
+    else
+      log '体检结论：PASS（有跳过项），可以进入实机测试；建议先处理上面的黄色提示。'
+    fi
+    return 0
+  fi
+
+  warn '体检结论：FAIL。请先修复红/黄项，不要在生产节点上继续测试。'
+  return 1
+}
+
 cmd_rollback() {
   need_root
   local archive="${1:-}"
@@ -222,17 +365,19 @@ show_menu() {
   echo '1. 安装测试版（新 VPS 推荐）'
   echo '2. 更新测试版（自动备份）'
   echo '3. 查看状态'
-  echo '4. 立即备份'
-  echo '5. 回滚最近备份'
+  echo '4. 一键体检（Doctor）'
+  echo '5. 立即备份'
+  echo '6. 回滚最近备份'
   echo '0. 退出'
   echo
-  read -r -p '请选择 [0-5]：' choice
+  read -r -p '请选择 [0-6]：' choice
   case "$choice" in
     1) cmd_install ;;
     2) cmd_update ;;
     3) cmd_status ;;
-    4) backup_now ;;
-    5) cmd_rollback ;;
+    4) cmd_doctor ;;
+    5) backup_now ;;
+    6) cmd_rollback ;;
     0) exit 0 ;;
     *) die '无效选项。' ;;
   esac
@@ -242,11 +387,12 @@ case "${1:-menu}" in
   install) cmd_install ;;
   update) cmd_update ;;
   status) cmd_status ;;
+  doctor) cmd_doctor ;;
   backup) backup_now ;;
   rollback) shift; cmd_rollback "${1:-}" ;;
   menu|'') show_menu ;;
   help|-h|--help)
-    echo '用法：xui-speedlimit {install|update|status|backup|rollback|menu}'
+    echo '用法：xui-speedlimit {install|update|status|doctor|backup|rollback|menu}'
     ;;
   *) die "未知命令：${1}" ;;
 esac
