@@ -60,11 +60,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools curl tar unzip ca-certificates
 
-      - name: Verify custom Xray module binding
+      - name: Verify custom source and one-click manager
         run: |
           grep -q 'replace github.com/xtls/xray-core => github.com/luhaihui106/Xray-core' go.mod
           grep -q 'speed_limit_up_mbps' xray-core/common/protocol/user.proto
           grep -q 'speed_limit_down_mbps' xray-core/common/protocol/user.proto
+          bash -n install-speedlimit.sh
+          bash -n x-ui.sh
+          grep -q 'REAL_SPEEDLIMIT_V1_MENU_GUARD' x-ui.sh
+          grep -q 'install-speedlimit.sh) update' x-ui.sh
+          if grep -q 'MHSanaei/3x-ui/main/update.sh' x-ui.sh; then
+            echo 'custom menu still contains an upstream update path' >&2
+            exit 1
+          fi
 
       - name: Build frontend
         working-directory: frontend
@@ -126,13 +134,6 @@ jobs:
           limits=aggregate-per-client-upload-download-mbps
           EOF
 
-          # The regular x-ui menu must not silently fetch upstream binaries.
-          # Redirect its installer/menu refresh URLs to this fork's development branch.
-          sed -i \
-            -e 's#https://raw.githubusercontent.com/MHSanaei/3x-ui/main/#https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/#g' \
-            -e 's#https://raw.githubusercontent.com/mhsanaei/3x-ui/main/#https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/#g' \
-            x-ui/x-ui.sh
-
           tar -zcf x-ui-linux-amd64.tar.gz x-ui
           sha256sum x-ui-linux-amd64.tar.gz > x-ui-linux-amd64.tar.gz.sha256
 
@@ -146,6 +147,8 @@ jobs:
           test -x /tmp/xui-package-check/x-ui/bin/xray-linux-amd64
           test -f /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
           grep -q 'real-client-speed-limit-v1' /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
+          grep -q 'REAL_SPEEDLIMIT_V1_MENU_GUARD' /tmp/xui-package-check/x-ui/x-ui.sh
+          grep -q 'install-speedlimit.sh) update' /tmp/xui-package-check/x-ui/x-ui.sh
           /tmp/xui-package-check/x-ui/bin/xray-linux-amd64 version | head -n 5
 
       - name: Upload workflow artifact
@@ -170,13 +173,13 @@ jobs:
           if gh release view dev-latest >/dev/null 2>&1; then
             gh release edit dev-latest \
               --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
-              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速。请勿直接覆盖 X-Panel 生产机。' \
+              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速，并提供中文一键安装/更新/备份/状态/回滚入口。请勿直接覆盖 X-Panel 生产机。' \
               --prerelease
           else
             gh release create dev-latest \
               --target "$GITHUB_SHA" \
               --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
-              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速。请勿直接覆盖 X-Panel 生产机。' \
+              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速，并提供中文一键安装/更新/备份/状态/回滚入口。请勿直接覆盖 X-Panel 生产机。' \
               --prerelease
           fi
 
