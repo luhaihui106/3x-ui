@@ -1,0 +1,41 @@
+name: Real Speed Limit V1 Menu Guard
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/real-client-speed-limit-v1
+    paths:
+      - .github/real-speedlimit/patch_menu.py
+      - .github/workflows/real-speedlimit-menu-guard.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-menu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/real-client-speed-limit-v1
+          fetch-depth: 0
+
+      - name: Apply idempotent menu guard
+        run: |
+          python3 .github/real-speedlimit/patch_menu.py
+          bash -n x-ui.sh
+
+      - name: Commit patched menu
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add x-ui.sh
+          if git diff --cached --quiet; then
+            echo 'Menu guard already applied'
+          else
+            git commit -m 'fix: keep x-ui updates on custom speedlimit channel'
+            git fetch origin feature/real-client-speed-limit-v1
+            git rebase origin/feature/real-client-speed-limit-v1
+            git push origin HEAD:feature/real-client-speed-limit-v1
+          fi
