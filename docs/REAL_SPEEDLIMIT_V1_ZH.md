@@ -7,7 +7,8 @@
 这个分支保留 3X-UI 上游架构、数据库、API、订阅、多节点、IP/HWID 等能力，同时吸收中文用户常见面板的操作优势：
 
 - 中文优先：关键字段直接说明用途、单位和 `0 = 不限速`。
-- 一键操作：安装、更新、备份、状态、回滚统一由一个命令入口完成。
+- 一键操作：安装、更新、状态、体检、备份、回滚统一由一个命令入口完成。
+- 一键体检：自动检查服务、自定义 Xray、构建标记、菜单更新通道、SQLite 限速字段/完整性和 Xray 配置语法。
 - 防误操作：更新前自动备份；检测到 X-Panel 时默认拒绝直接覆盖。
 - 可识别构建：安装包内置 `REAL_SPEEDLIMIT_V1` 标记，避免官方 Xray 与自定义 Xray 混淆。
 - 可回滚：保留更新前的 `/etc/x-ui`、`/usr/local/x-ui`、systemd 配置和证书目录。
@@ -32,6 +33,30 @@
 
 - 上传 `20`、下载 `100`：该客户端所有并发连接合计上传约 20 Mbps、下载约 100 Mbps。
 - 上传 `0`、下载 `100`：上传不限速，下载约 100 Mbps。
+
+## 唯一支持的测试安装包
+
+真限速测试版只认：
+
+```text
+https://github.com/luhaihui106/3x-ui/releases/tag/dev-latest
+```
+
+以及由 `install-speedlimit.sh` 自动下载的 `dev-latest` 包。
+
+**不要使用 GitHub Actions 中上游 `Release 3X-UI` 工作流生成的普通 Artifact 作为真限速包。** 上游工作流为了保持原项目兼容，会下载官方 Xray-core；它不是本分支的权威限速发行物。
+
+正确的权威构建工作流是：
+
+```text
+Real Speed Limit V1 Package
+```
+
+包内必须存在：
+
+```text
+/usr/local/x-ui/bin/REAL_SPEEDLIMIT_V1
+```
 
 ## 一键命令
 
@@ -73,6 +98,32 @@ xui-speedlimit status
 - `/usr/local/x-ui/bin/REAL_SPEEDLIMIT_V1` 存在；
 - 自定义 Xray 二进制存在；
 - 构建标记中显示对应 panel/xray commit。
+
+### 一键体检
+
+```bash
+xui-speedlimit doctor
+```
+
+Doctor 会自动检查：
+
+- 当前架构是否为 V1 支持的 amd64；
+- 面板和自定义 Xray 二进制是否存在；
+- `REAL_SPEEDLIMIT_V1` 中的构建指纹是否匹配；
+- `x-ui` systemd 服务是否 active；
+- 普通 `x-ui` 菜单是否锁定自定义更新通道；
+- 是否残留会切回官方 Xray 的更新入口；
+- SQLite `clients` 表是否已经迁移出上下行限速字段；
+- SQLite `PRAGMA integrity_check` 是否为 `ok`；
+- 当前 `/usr/local/x-ui/bin/config.json` 能否通过自定义 Xray 的配置测试。
+
+看到：
+
+```text
+体检结论：PASS
+```
+
+再进入 Reality/Vision 实机吞吐验收。
 
 ### 手动备份
 
