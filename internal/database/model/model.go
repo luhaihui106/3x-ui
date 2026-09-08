@@ -894,8 +894,10 @@ type Client struct {
 	ForwardedPorts      string           `json:"forwardedPorts,omitempty"` // AmneziaWG per-client port-forwarding spec, e.g. "80,443,8000-8100"
 	Secret              string           `json:"secret,omitempty" example:"ee1234567890abcdef1234567890abcd7777772e636c6f7564666c6172652e636f6d"`
 	AdTag               string           `json:"adTag,omitempty" example:"0123456789abcdef0123456789abcdef"`
-	Email               string           `json:"email"`                        // Client email identifier
-	LimitIP             int              `json:"limitIp"`                      // IP limit for this client
+	Email               string           `json:"email"`   // Client email identifier
+	LimitIP             int              `json:"limitIp"` // IP limit for this client
+	SpeedLimitUpMbps    uint32           `json:"speedLimitUpMbps" form:"speedLimitUpMbps"`
+	SpeedLimitDownMbps  uint32           `json:"speedLimitDownMbps" form:"speedLimitDownMbps"`
 	TotalGB             int64            `json:"totalGB" form:"totalGB"`       // Total traffic limit in GB
 	ExpiryTime          int64            `json:"expiryTime" form:"expiryTime"` // Expiration timestamp
 	Enable              bool             `json:"enable" form:"enable"`         // Whether the client is enabled
@@ -914,38 +916,40 @@ type Client struct {
 }
 
 type ClientRecord struct {
-	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	Email           string `json:"email" gorm:"uniqueIndex;not null"`
-	SubID           string `json:"subId" gorm:"index;column:sub_id"`
-	UUID            string `json:"uuid" gorm:"column:uuid"`
-	Password        string `json:"password"`
-	Auth            string `json:"auth"`
-	Flow            string `json:"flow"`
-	Security        string `json:"security"`
-	Reverse         string `json:"reverse" gorm:"column:reverse"`
-	PrivateKey      string `json:"privateKey" gorm:"column:wg_private_key"`
-	PublicKey       string `json:"publicKey" gorm:"column:wg_public_key"`
-	AllowedIPs      string `json:"allowedIPs" gorm:"column:wg_allowed_ips"`
-	PreSharedKey    string `json:"preSharedKey" gorm:"column:wg_pre_shared_key"`
-	KeepAlive       int    `json:"keepAlive" gorm:"column:wg_keep_alive;default:0"`
-	ForwardedPorts  string `json:"forwardedPorts" gorm:"column:wg_forwarded_ports"`
-	Secret          string `json:"secret" gorm:"column:secret"`
-	AdTag           string `json:"adTag" gorm:"column:ad_tag;default:''"`
-	LimitIP         int    `json:"limitIp" gorm:"column:limit_ip"`
-	LimitHwid       int    `json:"limitHwid" gorm:"column:limit_hwid;default:0"`
-	TotalGB         int64  `json:"totalGB" gorm:"column:total_gb"`
-	ExpiryTime      int64  `json:"expiryTime" gorm:"column:expiry_time"`
-	Enable          bool   `json:"enable" gorm:"default:true"`
-	TgID            int64  `json:"tgId" gorm:"column:tg_id;index:idx_clients_tg_id"`
-	Group           string `json:"group" gorm:"column:group_name;default:'';index:idx_client_record_group"`
-	Comment         string `json:"comment"`
-	Reset           int    `json:"reset" gorm:"default:0"`
-	ResetDay        int    `json:"resetDay" gorm:"column:reset_day;default:0"`
-	ResetMax        int    `json:"resetMax" gorm:"column:reset_max;default:0"`
-	TrafficReset    string `json:"trafficReset" gorm:"column:traffic_reset;default:never;index:idx_clients_traffic_reset"`
-	TrafficResetDay int    `json:"trafficResetDay" gorm:"column:traffic_reset_day;default:1"`
-	CreatedAt       int64  `json:"createdAt" gorm:"autoCreateTime:milli"`
-	UpdatedAt       int64  `json:"updatedAt" gorm:"autoUpdateTime:milli"`
+	Id                 int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Email              string `json:"email" gorm:"uniqueIndex;not null"`
+	SubID              string `json:"subId" gorm:"index;column:sub_id"`
+	UUID               string `json:"uuid" gorm:"column:uuid"`
+	Password           string `json:"password"`
+	Auth               string `json:"auth"`
+	Flow               string `json:"flow"`
+	Security           string `json:"security"`
+	Reverse            string `json:"reverse" gorm:"column:reverse"`
+	PrivateKey         string `json:"privateKey" gorm:"column:wg_private_key"`
+	PublicKey          string `json:"publicKey" gorm:"column:wg_public_key"`
+	AllowedIPs         string `json:"allowedIPs" gorm:"column:wg_allowed_ips"`
+	PreSharedKey       string `json:"preSharedKey" gorm:"column:wg_pre_shared_key"`
+	KeepAlive          int    `json:"keepAlive" gorm:"column:wg_keep_alive;default:0"`
+	ForwardedPorts     string `json:"forwardedPorts" gorm:"column:wg_forwarded_ports"`
+	Secret             string `json:"secret" gorm:"column:secret"`
+	AdTag              string `json:"adTag" gorm:"column:ad_tag;default:''"`
+	LimitIP            int    `json:"limitIp" gorm:"column:limit_ip"`
+	LimitHwid          int    `json:"limitHwid" gorm:"column:limit_hwid;default:0"`
+	SpeedLimitUpMbps   uint32 `json:"speedLimitUpMbps" gorm:"column:speed_limit_up_mbps;default:0"`
+	SpeedLimitDownMbps uint32 `json:"speedLimitDownMbps" gorm:"column:speed_limit_down_mbps;default:0"`
+	TotalGB            int64  `json:"totalGB" gorm:"column:total_gb"`
+	ExpiryTime         int64  `json:"expiryTime" gorm:"column:expiry_time"`
+	Enable             bool   `json:"enable" gorm:"default:true"`
+	TgID               int64  `json:"tgId" gorm:"column:tg_id;index:idx_clients_tg_id"`
+	Group              string `json:"group" gorm:"column:group_name;default:'';index:idx_client_record_group"`
+	Comment            string `json:"comment"`
+	Reset              int    `json:"reset" gorm:"default:0"`
+	ResetDay           int    `json:"resetDay" gorm:"column:reset_day;default:0"`
+	ResetMax           int    `json:"resetMax" gorm:"column:reset_max;default:0"`
+	TrafficReset       string `json:"trafficReset" gorm:"column:traffic_reset;default:never;index:idx_clients_traffic_reset"`
+	TrafficResetDay    int    `json:"trafficResetDay" gorm:"column:traffic_reset_day;default:1"`
+	CreatedAt          int64  `json:"createdAt" gorm:"autoCreateTime:milli"`
+	UpdatedAt          int64  `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 	// Owned solely by the node-snapshot sweep, which soft-orphans instead of
 	// deleting; orphans from any other cause stay at zero and are never reaped.
 	SyncOrphanedAt int64 `json:"-" gorm:"column:sync_orphaned_at;default:0"`
@@ -1115,27 +1119,29 @@ func (Host) TableName() string { return "hosts" }
 
 func (c *Client) ToRecord() *ClientRecord {
 	rec := &ClientRecord{
-		Email:           c.Email,
-		SubID:           c.SubID,
-		UUID:            c.ID,
-		Password:        c.Password,
-		Auth:            c.Auth,
-		Flow:            c.Flow,
-		Security:        c.Security,
-		LimitIP:         c.LimitIP,
-		TotalGB:         c.TotalGB,
-		ExpiryTime:      c.ExpiryTime,
-		Enable:          c.Enable,
-		TgID:            c.TgID,
-		Group:           c.Group,
-		Comment:         c.Comment,
-		Reset:           c.Reset,
-		ResetDay:        c.ResetDay,
-		ResetMax:        c.ResetMax,
-		TrafficReset:    c.TrafficReset,
-		TrafficResetDay: c.TrafficResetDay,
-		CreatedAt:       c.CreatedAt,
-		UpdatedAt:       c.UpdatedAt,
+		Email:              c.Email,
+		SubID:              c.SubID,
+		UUID:               c.ID,
+		Password:           c.Password,
+		Auth:               c.Auth,
+		Flow:               c.Flow,
+		Security:           c.Security,
+		LimitIP:            c.LimitIP,
+		SpeedLimitUpMbps:   c.SpeedLimitUpMbps,
+		SpeedLimitDownMbps: c.SpeedLimitDownMbps,
+		TotalGB:            c.TotalGB,
+		ExpiryTime:         c.ExpiryTime,
+		Enable:             c.Enable,
+		TgID:               c.TgID,
+		Group:              c.Group,
+		Comment:            c.Comment,
+		Reset:              c.Reset,
+		ResetDay:           c.ResetDay,
+		ResetMax:           c.ResetMax,
+		TrafficReset:       c.TrafficReset,
+		TrafficResetDay:    c.TrafficResetDay,
+		CreatedAt:          c.CreatedAt,
+		UpdatedAt:          c.UpdatedAt,
 
 		PrivateKey:     c.PrivateKey,
 		PublicKey:      c.PublicKey,
@@ -1173,27 +1179,29 @@ func splitWireguardAllowedIPs(csv string) []string {
 
 func (r *ClientRecord) ToClient() *Client {
 	c := &Client{
-		ID:              r.UUID,
-		Email:           r.Email,
-		SubID:           r.SubID,
-		Password:        r.Password,
-		Auth:            r.Auth,
-		Flow:            r.Flow,
-		Security:        r.Security,
-		LimitIP:         r.LimitIP,
-		TotalGB:         r.TotalGB,
-		ExpiryTime:      r.ExpiryTime,
-		Enable:          r.Enable,
-		TgID:            r.TgID,
-		Group:           r.Group,
-		Comment:         r.Comment,
-		Reset:           r.Reset,
-		ResetDay:        r.ResetDay,
-		ResetMax:        r.ResetMax,
-		TrafficReset:    r.TrafficReset,
-		TrafficResetDay: r.TrafficResetDay,
-		CreatedAt:       r.CreatedAt,
-		UpdatedAt:       r.UpdatedAt,
+		ID:                 r.UUID,
+		Email:              r.Email,
+		SubID:              r.SubID,
+		Password:           r.Password,
+		Auth:               r.Auth,
+		Flow:               r.Flow,
+		Security:           r.Security,
+		LimitIP:            r.LimitIP,
+		SpeedLimitUpMbps:   r.SpeedLimitUpMbps,
+		SpeedLimitDownMbps: r.SpeedLimitDownMbps,
+		TotalGB:            r.TotalGB,
+		ExpiryTime:         r.ExpiryTime,
+		Enable:             r.Enable,
+		TgID:               r.TgID,
+		Group:              r.Group,
+		Comment:            r.Comment,
+		Reset:              r.Reset,
+		ResetDay:           r.ResetDay,
+		ResetMax:           r.ResetMax,
+		TrafficReset:       r.TrafficReset,
+		TrafficResetDay:    r.TrafficResetDay,
+		CreatedAt:          r.CreatedAt,
+		UpdatedAt:          r.UpdatedAt,
 
 		PrivateKey:     r.PrivateKey,
 		PublicKey:      r.PublicKey,

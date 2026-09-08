@@ -210,6 +210,12 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 				flow = ""
 			}
 			entry := map[string]any{"email": c.Email}
+			if c.SpeedLimitUpMbps > 0 {
+				entry["speed_limit_up_mbps"] = c.SpeedLimitUpMbps
+			}
+			if c.SpeedLimitDownMbps > 0 {
+				entry["speed_limit_down_mbps"] = c.SpeedLimitDownMbps
+			}
 			switch inbound.Protocol {
 			case model.VLESS:
 				if c.ID != "" {

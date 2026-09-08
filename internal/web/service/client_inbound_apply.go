@@ -573,17 +573,19 @@ func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model
 					cipher, _ = oldSettings["method"].(string)
 				}
 				err1 := rt.AddUser(context.Background(), oldInbound, map[string]any{
-					"email":        client.Email,
-					"id":           client.ID,
-					"auth":         client.Auth,
-					"security":     client.Security,
-					"flow":         client.Flow,
-					"password":     client.Password,
-					"cipher":       cipher,
-					"publicKey":    client.PublicKey,
-					"allowedIPs":   client.AllowedIPs,
-					"preSharedKey": client.PreSharedKey,
-					"keepAlive":    keepAliveStr(client.KeepAlive),
+					"email":                 client.Email,
+					"id":                    client.ID,
+					"auth":                  client.Auth,
+					"security":              client.Security,
+					"flow":                  client.Flow,
+					"password":              client.Password,
+					"cipher":                cipher,
+					"publicKey":             client.PublicKey,
+					"allowedIPs":            client.AllowedIPs,
+					"preSharedKey":          client.PreSharedKey,
+					"keepAlive":             keepAliveStr(client.KeepAlive),
+					"speed_limit_up_mbps":   client.SpeedLimitUpMbps,
+					"speed_limit_down_mbps": client.SpeedLimitDownMbps,
 				})
 				if err1 == nil {
 					logger.Debug("Client added on", rt.Name(), ":", client.Email)

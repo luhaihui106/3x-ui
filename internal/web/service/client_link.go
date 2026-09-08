@@ -55,6 +55,8 @@ func applyClientRecordMerge(row *model.ClientRecord, incoming *model.ClientRecor
 	row.KeepAlive = incoming.KeepAlive
 	row.SubID = incoming.SubID
 	row.LimitIP = incoming.LimitIP
+	row.SpeedLimitUpMbps = incoming.SpeedLimitUpMbps
+	row.SpeedLimitDownMbps = incoming.SpeedLimitDownMbps
 	row.TotalGB = incoming.TotalGB
 	row.ExpiryTime = incoming.ExpiryTime
 	row.Enable = incoming.Enable

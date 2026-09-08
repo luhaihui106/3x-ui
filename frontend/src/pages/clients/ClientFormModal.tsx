@@ -156,6 +156,8 @@ const EMPTY: Values = {
   trafficResetDay: 1,
   limitIp: 0,
   limitHwid: 0,
+  speedLimitUpMbps: 0,
+  speedLimitDownMbps: 0,
   tgId: 0,
   group: '',
   comment: '',
@@ -366,6 +368,8 @@ export default function ClientFormModal({
         trafficResetDay: Number(client.trafficResetDay) || 1,
         limitIp: client.limitIp || 0,
         limitHwid: client.limitHwid || 0,
+        speedLimitUpMbps: Number(client.speedLimitUpMbps) || 0,
+        speedLimitDownMbps: Number(client.speedLimitDownMbps) || 0,
         tgId: Number(client.tgId) || 0,
         group: client.group || '',
         comment: client.comment || '',
@@ -645,6 +649,8 @@ export default function ClientFormModal({
       trafficResetDay: values.trafficResetDay,
       limitIp: values.limitIp,
       limitHwid: values.limitHwid,
+      speedLimitUpMbps: values.speedLimitUpMbps,
+      speedLimitDownMbps: values.speedLimitDownMbps,
       tgId: values.tgId,
       group: values.group,
       comment: values.comment,
@@ -677,6 +683,8 @@ export default function ClientFormModal({
       trafficResetDay: Number(values.trafficResetDay) || 1,
       limitIp: Number(values.limitIp) || 0,
       limitHwid: Number(values.limitHwid) || 0,
+      speedLimitUpMbps: Number(values.speedLimitUpMbps) || 0,
+      speedLimitDownMbps: Number(values.speedLimitDownMbps) || 0,
       tgId: Number(values.tgId) || 0,
       group: values.group,
       comment: values.comment,
@@ -919,6 +927,41 @@ export default function ClientFormModal({
                               )}
                             </Space.Compact>
                           </Form.Item>
+                        </Col>
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <FormField
+                            name="speedLimitUpMbps"
+                            label={t('pages.clients.speedLimitUpMbps')}
+                            tooltip={t('pages.clients.speedLimitUpMbpsDesc')}
+                            transform={{ output: (v) => Number(v) || 0 }}
+                          >
+                            <InputNumber
+                              min={0}
+                              max={100000}
+                              step={1}
+                              addonAfter="Mbps"
+                              style={{ width: '100%' }}
+                            />
+                          </FormField>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <FormField
+                            name="speedLimitDownMbps"
+                            label={t('pages.clients.speedLimitDownMbps')}
+                            tooltip={t('pages.clients.speedLimitDownMbpsDesc')}
+                            transform={{ output: (v) => Number(v) || 0 }}
+                          >
+                            <InputNumber
+                              min={0}
+                              max={100000}
+                              step={1}
+                              addonAfter="Mbps"
+                              style={{ width: '100%' }}
+                            />
+                          </FormField>
                         </Col>
                       </Row>
 

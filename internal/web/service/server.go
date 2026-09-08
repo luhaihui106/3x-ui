@@ -1007,6 +1007,10 @@ func parseXrayDigestSHA256(dgst []byte) (string, error) {
 }
 
 func (s *ServerService) UpdateXray(version string) error {
+	return errors.New("Xray version switching is disabled in the real-speedlimit build")
+}
+
+func (s *ServerService) updateXrayUpstreamDisabled(version string) error {
 	versions, err := s.GetXrayVersions()
 	if err != nil {
 		return err

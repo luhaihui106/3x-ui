@@ -232,16 +232,18 @@ func (l *Local) AddClient(ctx context.Context, ib *model.Inbound, client model.C
 		return nil
 	}
 	user := map[string]any{
-		"email":        client.Email,
-		"id":           client.ID,
-		"security":     client.Security,
-		"flow":         client.Flow,
-		"auth":         client.Auth,
-		"password":     client.Password,
-		"publicKey":    client.PublicKey,
-		"allowedIPs":   client.AllowedIPs,
-		"preSharedKey": client.PreSharedKey,
-		"keepAlive":    wgKeepAlive(client.KeepAlive),
+		"email":                 client.Email,
+		"id":                    client.ID,
+		"security":              client.Security,
+		"flow":                  client.Flow,
+		"auth":                  client.Auth,
+		"password":              client.Password,
+		"publicKey":             client.PublicKey,
+		"allowedIPs":            client.AllowedIPs,
+		"preSharedKey":          client.PreSharedKey,
+		"keepAlive":             wgKeepAlive(client.KeepAlive),
+		"speed_limit_up_mbps":   client.SpeedLimitUpMbps,
+		"speed_limit_down_mbps": client.SpeedLimitDownMbps,
 	}
 	return l.AddUser(ctx, ib, user)
 }
@@ -273,16 +275,18 @@ func (l *Local) UpdateUser(ctx context.Context, ib *model.Inbound, oldEmail stri
 		return nil
 	}
 	user := map[string]any{
-		"email":        payload.Email,
-		"id":           payload.ID,
-		"security":     payload.Security,
-		"flow":         payload.Flow,
-		"auth":         payload.Auth,
-		"password":     payload.Password,
-		"publicKey":    payload.PublicKey,
-		"allowedIPs":   payload.AllowedIPs,
-		"preSharedKey": payload.PreSharedKey,
-		"keepAlive":    wgKeepAlive(payload.KeepAlive),
+		"email":                 payload.Email,
+		"id":                    payload.ID,
+		"security":              payload.Security,
+		"flow":                  payload.Flow,
+		"auth":                  payload.Auth,
+		"password":              payload.Password,
+		"publicKey":             payload.PublicKey,
+		"allowedIPs":            payload.AllowedIPs,
+		"preSharedKey":          payload.PreSharedKey,
+		"keepAlive":             wgKeepAlive(payload.KeepAlive),
+		"speed_limit_up_mbps":   payload.SpeedLimitUpMbps,
+		"speed_limit_down_mbps": payload.SpeedLimitDownMbps,
 	}
 	return l.AddUser(ctx, ib, user)
 }
