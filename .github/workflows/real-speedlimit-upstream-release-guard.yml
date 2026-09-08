@@ -1,4 +1,4 @@
-name: Real Speed Limit V1 Upstream Release Guard
+name: Real Speed Limit V1 Stock Artifact Audit
 
 on:
   workflow_dispatch:
@@ -10,39 +10,32 @@ on:
       - .github/workflows/real-speedlimit-upstream-release-guard.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  guard-upstream-release:
+  audit-stock-release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/real-client-speed-limit-v1
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Guard upstream release workflow
+      - name: Audit upstream release workflow isolation
         run: |
-          python3 .github/real-speedlimit/patch_upstream_release_guard.py
-          python3 - <<'PY'
-          from pathlib import Path
-          s = Path('.github/workflows/release.yml').read_text()
-          guard = "github.ref != 'refs/heads/feature/real-client-speed-limit-v1' && github.head_ref != 'feature/real-client-speed-limit-v1'"
-          if s.count('if: ' + guard) < 2:
-              raise SystemExit('expected guard on upstream release jobs')
-          print('upstream release jobs are guarded')
-          PY
+          set -euxo pipefail
+          # Upstream release.yml intentionally remains untouched for clean
+          # future rebases. It builds stock Xray artifacts on branch pushes,
+          # but only uploads to a GitHub Release for refs/tags/*.
+          grep -q 'XTLS/Xray-core/releases/download/v26.7.28' .github/workflows/release.yml
+          grep -q "startsWith(github.ref, 'refs/tags/')" .github/workflows/release.yml
 
-      - name: Commit guard
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/workflows/release.yml
-          if git diff --cached --quiet; then
-            echo 'Upstream release guard already applied'
-          else
-            git commit -m 'fix: prevent stock-Xray artifacts on speedlimit branch'
-            git fetch origin feature/real-client-speed-limit-v1
-            git rebase origin/feature/real-client-speed-limit-v1
-            git push origin HEAD:feature/real-client-speed-limit-v1
-          fi
+          # The real limiter distribution must come exclusively from our
+          # dedicated package workflow and custom Xray checkout.
+          grep -q 'repository: luhaihui106/Xray-core' .github/workflows/real-speedlimit-package.yml
+          grep -q 'ref: 05f4c02c8a5ab773a0c8c5bfab79759cced08fe7' .github/workflows/real-speedlimit-package.yml
+          grep -q 'REAL_SPEEDLIMIT_V1' .github/workflows/real-speedlimit-package.yml
+          grep -q "gh release upload dev-latest" .github/workflows/real-speedlimit-package.yml
+
+          echo 'PASS: stock upstream workflow is identified as non-authoritative.'
+          echo 'PASS: only Real Speed Limit V1 Package/dev-latest is the supported limiter distribution.'
