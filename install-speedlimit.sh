@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # 3X-UI Real Speed Limit V1 - 中文一键管理入口
-# 仅用于 feature/real-client-speed-limit-v1 测试构建。
+# 自动识别官方 3X-UI 支持的 Linux CPU 架构并下载对应真限速构建。
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,13 +29,28 @@ need_root() {
 
 arch_name() {
   case "$(uname -m)" in
-    x86_64|amd64|x64) echo amd64 ;;
+    x86_64|x64|amd64) echo amd64 ;;
+    i386|i486|i586|i686|x86) echo 386 ;;
+    armv8*|armv8|arm64|aarch64) echo arm64 ;;
+    armv7*|armv7|arm) echo armv7 ;;
+    armv6*|armv6) echo armv6 ;;
+    armv5*|armv5) echo armv5 ;;
+    s390x) echo s390x ;;
     *) echo unsupported ;;
   esac
 }
 
 ensure_supported_arch() {
-  [[ "$(arch_name)" == 'amd64' ]] || die 'V1 安装包当前只发布 amd64。其他架构会在实机验收通过后补齐。'
+  local arch
+  arch="$(arch_name)"
+  [[ "$arch" != 'unsupported' ]] || die "不支持的 CPU 架构：$(uname -m)。当前自动适配：amd64/arm64/armv7/armv6/armv5/386/s390x。"
+}
+
+xray_bin() {
+  local arch
+  arch="$(arch_name)"
+  [[ "$arch" != 'unsupported' ]] || return 1
+  echo "/usr/local/x-ui/bin/xray-linux-${arch}"
 }
 
 panel_version_text() {
@@ -85,14 +100,16 @@ backup_now() {
 }
 
 patch_and_run_installer() {
-  local tmp
+  local tmp arch
+  arch="$(arch_name)"
+  info "自动识别架构：$(uname -m) → ${arch}"
   tmp="$(mktemp /tmp/3x-ui-speedlimit-install.XXXXXX.sh)"
   trap 'rm -f "$tmp"' RETURN
 
   curl -fsSL --retry 5 --retry-delay 2 "$UPSTREAM_INSTALLER_URL" -o "$tmp" || die '下载安装器失败，请检查 VPS 到 GitHub 的网络。'
 
-  # 保留官方成熟安装逻辑，只把 Release 来源切到当前 Fork。
-  # install.sh 原生支持参数 dev -> dev-latest，因此无需维护第二套安装器。
+  # 保留官方成熟安装逻辑。官方 install.sh 会按 uname -m 自动选择
+  # x-ui-linux-${arch}.tar.gz；这里只把 Release 来源切换到当前 Fork。
   sed -i \
     -e 's#github.com/MHSanaei/3x-ui#github.com/luhaihui106/3x-ui#g' \
     -e 's#github.com/mhsanaei/3x-ui#github.com/luhaihui106/3x-ui#g' \
@@ -115,10 +132,17 @@ install_manager_command() {
 }
 
 verify_install() {
-  local failed=0
+  local failed=0 arch xb
+  arch="$(arch_name)"
+  xb="$(xray_bin || true)"
   [[ -x /usr/local/x-ui/x-ui ]] || { warn '未找到面板二进制 /usr/local/x-ui/x-ui'; failed=1; }
-  [[ -x /usr/local/x-ui/bin/xray-linux-amd64 ]] || { warn '未找到自定义 Xray 二进制'; failed=1; }
+  [[ -n "$xb" && -x "$xb" ]] || { warn "未找到当前架构的自定义 Xray：${xb:-未知路径}"; failed=1; }
   [[ -f "$MARKER" ]] || { warn '未找到 REAL_SPEEDLIMIT_V1 构建标记；不要把它当成已验证的限速构建。'; failed=1; }
+
+  if [[ -f "$MARKER" ]] && ! grep -Fq "arch=${arch}" "$MARKER"; then
+    warn "安装包架构标记与本机不一致：期望 arch=${arch}"
+    failed=1
+  fi
 
   if command -v systemctl >/dev/null 2>&1; then
     if systemctl is-active --quiet x-ui; then
@@ -137,7 +161,7 @@ verify_install() {
   fi
 
   [[ $failed -eq 0 ]] || return 1
-  log '自定义面板 + 自定义 Xray 文件校验通过。'
+  log "自定义面板 + 自定义 Xray 文件校验通过（${arch}）。"
 }
 
 cmd_install() {
@@ -173,8 +197,12 @@ cmd_update() {
 }
 
 cmd_status() {
+  local arch xb
+  arch="$(arch_name)"
+  xb="$(xray_bin || true)"
   echo -e "${BLUE}=== 3X-UI 真限速 V1 状态 ===${PLAIN}"
-  echo "架构：$(uname -m)"
+  echo "CPU：$(uname -m)"
+  echo "归一化架构：${arch}"
   echo "面板版本：$(panel_version_text | head -n 3 | tr '\n' ' ' || true)"
   if [[ -f "$MARKER" ]]; then
     echo '构建标记：存在'
@@ -185,24 +213,28 @@ cmd_status() {
   if command -v systemctl >/dev/null 2>&1; then
     echo "服务：$(systemctl is-active x-ui 2>/dev/null || true)"
   fi
-  if [[ -x /usr/local/x-ui/bin/xray-linux-amd64 ]]; then
-    echo 'Xray：'
-    /usr/local/x-ui/bin/xray-linux-amd64 version 2>/dev/null | head -n 3 || true
+  if [[ -n "$xb" && -x "$xb" ]]; then
+    echo "Xray：$xb"
+    "$xb" version 2>/dev/null | head -n 3 || true
+  else
+    echo "Xray：未找到当前架构二进制（${xb:-unsupported}）"
   fi
 }
 
 cmd_doctor() {
   need_root
-  local failed=0 warned=0 menu_file db='/etc/x-ui/x-ui.db'
+  local failed=0 warned=0 menu_file db='/etc/x-ui/x-ui.db' arch xb
+  arch="$(arch_name)"
+  xb="$(xray_bin || true)"
 
   echo -e "${BLUE}================================================${PLAIN}"
   echo -e "${GREEN}  3X-UI 真限速 V1 · 一键体检${PLAIN}"
   echo -e "${BLUE}================================================${PLAIN}"
 
-  if [[ "$(arch_name)" == 'amd64' ]]; then
-    log "架构支持：$(uname -m)"
+  if [[ "$arch" != 'unsupported' ]]; then
+    log "架构支持：$(uname -m) → ${arch}"
   else
-    warn "当前架构尚未纳入 V1 发布：$(uname -m)"
+    warn "当前架构不支持：$(uname -m)"
     failed=1
   fi
 
@@ -213,11 +245,11 @@ cmd_doctor() {
     failed=1
   fi
 
-  if [[ -x /usr/local/x-ui/bin/xray-linux-amd64 ]]; then
-    log '自定义 Xray 二进制存在。'
-    /usr/local/x-ui/bin/xray-linux-amd64 version 2>/dev/null | head -n 3 || true
+  if [[ -n "$xb" && -x "$xb" ]]; then
+    log "自定义 Xray 二进制存在：$xb"
+    "$xb" version 2>/dev/null | head -n 3 || true
   else
-    warn '自定义 Xray 二进制缺失。'
+    warn "自定义 Xray 二进制缺失：${xb:-unsupported}"
     failed=1
   fi
 
@@ -226,7 +258,8 @@ cmd_doctor() {
     for required in \
       'build=real-client-speed-limit-v1' \
       'xray_commit=05f4c02c8a5ab773a0c8c5bfab79759cced08fe7' \
-      'limits=aggregate-per-client-upload-download-mbps'; do
+      'limits=aggregate-per-client-upload-download-mbps' \
+      "arch=${arch}"; do
       if grep -Fq "$required" "$MARKER"; then
         log "构建标记匹配：$required"
       else
@@ -275,7 +308,7 @@ cmd_doctor() {
   if [[ -f "$db" ]]; then
     log "SQLite 数据库存在：$db"
     if command -v sqlite3 >/dev/null 2>&1; then
-      local cols
+      local cols integrity
       cols="$(sqlite3 "$db" "PRAGMA table_info(clients);" 2>/dev/null || true)"
       if echo "$cols" | grep -q 'speed_limit_up_mbps' && echo "$cols" | grep -q 'speed_limit_down_mbps'; then
         log '数据库限速字段已完成迁移。'
@@ -283,7 +316,6 @@ cmd_doctor() {
         warn '数据库尚未发现上下行限速字段；请确认面板已用当前测试版成功启动过。'
         failed=1
       fi
-      local integrity
       integrity="$(sqlite3 "$db" 'PRAGMA integrity_check;' 2>/dev/null || true)"
       if [[ "$integrity" == 'ok' ]]; then
         log 'SQLite integrity_check：ok'
@@ -296,7 +328,6 @@ cmd_doctor() {
       warned=1
     fi
   else
-    # PostgreSQL installations do not use the default SQLite file.
     if grep -Rqs '^XUI_DB_TYPE=postgres' /etc/default/x-ui /etc/sysconfig/x-ui /etc/conf.d/x-ui 2>/dev/null; then
       info '检测到 PostgreSQL 模式；V1 doctor 当前只做文件/服务/构建检查，不直接读取 PostgreSQL。'
       warned=1
@@ -306,8 +337,8 @@ cmd_doctor() {
     fi
   fi
 
-  if [[ -f /usr/local/x-ui/bin/config.json ]]; then
-    if /usr/local/x-ui/bin/xray-linux-amd64 run -test -config /usr/local/x-ui/bin/config.json >/tmp/xui-speedlimit-xray-test.log 2>&1; then
+  if [[ -f /usr/local/x-ui/bin/config.json && -n "$xb" && -x "$xb" ]]; then
+    if "$xb" run -test -config /usr/local/x-ui/bin/config.json >/tmp/xui-speedlimit-xray-test.log 2>&1; then
       log '当前 Xray config.json 语法测试通过。'
     else
       warn '当前 Xray config.json 测试失败：'
@@ -316,16 +347,16 @@ cmd_doctor() {
     fi
     rm -f /tmp/xui-speedlimit-xray-test.log
   else
-    warn '未发现 /usr/local/x-ui/bin/config.json，跳过 Xray 配置测试。'
+    warn '未发现 config.json 或当前架构 Xray，跳过 Xray 配置测试。'
     warned=1
   fi
 
   echo
   if [[ $failed -eq 0 ]]; then
     if [[ $warned -eq 0 ]]; then
-      log '体检结论：PASS，可以进入 Reality/Vision 实机限速验收。'
+      log "体检结论：PASS（${arch}），可以进入 Reality/Vision 实机限速验收。"
     else
-      log '体检结论：PASS（有跳过项），可以进入实机测试；建议先处理上面的黄色提示。'
+      log "体检结论：PASS（${arch}，有跳过项），可以进入实机测试；建议先处理上面的黄色提示。"
     fi
     return 0
   fi
@@ -361,8 +392,9 @@ show_menu() {
   echo -e "${BLUE}================================================${PLAIN}"
   echo -e "${GREEN}  3X-UI 真限速 V1 · 中文一键管理${PLAIN}"
   echo '  基于 3X-UI v3.7.0 + Xray v26.7.28 改造'
+  echo "  当前架构：$(uname -m) → $(arch_name)（自动适配）"
   echo -e "${BLUE}================================================${PLAIN}"
-  echo '1. 安装测试版（新 VPS 推荐）'
+  echo '1. 安装测试版（自动识别架构）'
   echo '2. 更新测试版（自动备份）'
   echo '3. 查看状态'
   echo '4. 一键体检（Doctor）'
@@ -393,6 +425,7 @@ case "${1:-menu}" in
   menu|'') show_menu ;;
   help|-h|--help)
     echo '用法：xui-speedlimit {install|update|status|doctor|backup|rollback|menu}'
+    echo '支持架构：amd64/arm64/armv7/armv6/armv5/386/s390x（自动识别）'
     ;;
   *) die "未知命令：${1}" ;;
 esac
