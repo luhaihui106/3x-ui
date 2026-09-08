@@ -167,7 +167,7 @@ update_dev() {
     fi
     # XUI_UPDATE_TAG tells update.sh to install the dev-latest pre-release
     # instead of the latest stable tag.
-    XUI_UPDATE_TAG="dev-latest" bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/install-speedlimit.sh) update
     if [[ $? == 0 ]]; then
         LOGI "Dev update is complete, Panel has automatically restarted "
         before_show_menu
@@ -231,18 +231,9 @@ update_menu() {
 }
 
 legacy_version() {
-    echo -n "Enter the panel version (like 2.4.0):"
-    read -r tag_version
-
-    if [ -z "$tag_version" ]; then
-        echo "Panel version cannot be empty. Exiting."
-        exit 1
-    fi
-    # Use the entered panel version in the download link
-    install_command="bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/v$tag_version/install.sh") v$tag_version"
-
-    echo "Downloading and installing panel version $tag_version..."
-    eval $install_command
+    echo -e "${yellow}真限速测试版已禁用“安装旧版”。${plain}"
+    echo -e "${yellow}原因：官方历史版本不包含自定义 Xray 聚合限速，切换后会失去该功能。${plain}"
+    echo -e "${green}如需更新本测试版，请使用：xui-speedlimit update${plain}"
 }
 
 # Function to handle the deletion of the script file
@@ -304,7 +295,7 @@ uninstall() {
     echo ""
     echo -e "Uninstalled Successfully.\n"
     echo "If you need to install this panel again, you can use below command:"
-    echo -e "${green}bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)${plain}"
+    echo -e "${green}bash <(curl -Ls https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/install-speedlimit.sh) install${plain}"
     echo ""
     # Trap the SIGTERM signal
     trap delete_script SIGTERM
@@ -837,7 +828,7 @@ enable_bbr() {
 }
 
 update_shell() {
-    if replace_xui_script "https://github.com/MHSanaei/3x-ui/raw/main/x-ui.sh" "true"; then
+    if replace_xui_script "https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/x-ui.sh" "true"; then
         LOGI "Upgrade script succeeded, Please rerun the script"
         before_show_menu
     else
