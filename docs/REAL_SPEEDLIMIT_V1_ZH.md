@@ -29,6 +29,14 @@
 | `i386` / `i686` / `x86` | `386` |
 | `s390x` | `s390x` |
 
+因此用户不需要知道机器属于 x86 还是 ARM，也不需要使用不同安装命令。始终执行同一条：
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/luhaihui106/3x-ui/feature/real-client-speed-limit-v1/install-speedlimit.sh) install
+```
+
+脚本负责完成“CPU 识别 → 架构归一化 → 获取对应 `x-ui-linux-${arch}.tar.gz` → 校验对应自定义 Xray → 安装”。
+
 `dev-latest` 只有在上述 7 个架构全部完成面板、自定义 Xray、包内 Smoke Check 和 SHA256 校验后才会统一发布。`dev-latest` 标签指向本次实际产包并通过校验的代码提交；后续只修改文档不会改变已发布包的构建指纹。
 
 安装后执行：
