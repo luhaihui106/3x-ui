@@ -26,8 +26,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-amd64:
+  build:
+    name: build-${{ matrix.arch }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
+          - armv7
+          - armv6
+          - armv5
+          - 386
+          - s390x
     steps:
       - name: Checkout 3X-UI fork
         uses: actions/checkout@v4
@@ -58,7 +70,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools curl tar unzip ca-certificates
+          sudo apt-get install -y curl tar xz-utils file ca-certificates
 
       - name: Verify custom source and Chinese one-click manager
         run: |
@@ -89,41 +101,84 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build static 3X-UI amd64
+      - name: Resolve static cross-toolchain
+        id: toolchain
+        shell: bash
         run: |
+          set -euxo pipefail
+          case "${{ matrix.arch }}" in
+            amd64) BOOTLIN_ARCH='x86-64'; GOARCH_VALUE='amd64'; GOARM_VALUE='' ;;
+            arm64) BOOTLIN_ARCH='aarch64'; GOARCH_VALUE='arm64'; GOARM_VALUE='' ;;
+            armv7) BOOTLIN_ARCH='armv7-eabihf'; GOARCH_VALUE='arm'; GOARM_VALUE='7' ;;
+            armv6) BOOTLIN_ARCH='armv6-eabihf'; GOARCH_VALUE='arm'; GOARM_VALUE='6' ;;
+            armv5) BOOTLIN_ARCH='armv5-eabi'; GOARCH_VALUE='arm'; GOARM_VALUE='5' ;;
+            386) BOOTLIN_ARCH='x86-i686'; GOARCH_VALUE='386'; GOARM_VALUE='' ;;
+            s390x) BOOTLIN_ARCH='s390x-z13'; GOARCH_VALUE='s390x'; GOARM_VALUE='' ;;
+            *) echo 'unsupported arch' >&2; exit 1 ;;
+          esac
+
+          TARBALL_BASE="https://toolchains.bootlin.com/downloads/releases/toolchains/${BOOTLIN_ARCH}/tarballs/"
+          TARBALL_NAME="$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$TARBALL_BASE" \
+            | grep -oE "${BOOTLIN_ARCH}--musl--stable-[^\"]+\\.tar\\.xz" \
+            | sort -r | head -n1)"
+          test -n "$TARBALL_NAME"
+          curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
+            -o "/tmp/${TARBALL_NAME}" "${TARBALL_BASE}${TARBALL_NAME}"
+          tar -xf "/tmp/${TARBALL_NAME}" -C /tmp
+          TOOLCHAIN_DIR="$(find /tmp -maxdepth 1 -type d -name "${BOOTLIN_ARCH}--musl--stable-*" | head -n1)"
+          CC_PATH="$(find "$TOOLCHAIN_DIR/bin" -name '*-gcc.br_real' -type f -executable | head -n1)"
+          test -x "$CC_PATH"
+
+          echo "goarch=$GOARCH_VALUE" >> "$GITHUB_OUTPUT"
+          echo "goarm=$GOARM_VALUE" >> "$GITHUB_OUTPUT"
+          echo "cc=$CC_PATH" >> "$GITHUB_OUTPUT"
+          echo "toolchain_bin=$TOOLCHAIN_DIR/bin" >> "$GITHUB_OUTPUT"
+
+      - name: Build static 3X-UI
+        run: |
+          set -euxo pipefail
           export CGO_ENABLED=1
           export GOOS=linux
-          export GOARCH=amd64
-          export CC=musl-gcc
+          export GOARCH='${{ steps.toolchain.outputs.goarch }}'
+          if [[ -n '${{ steps.toolchain.outputs.goarm }}' ]]; then
+            export GOARM='${{ steps.toolchain.outputs.goarm }}'
+          fi
+          export PATH='${{ steps.toolchain.outputs.toolchain_bin }}':$PATH
+          export CC='${{ steps.toolchain.outputs.cc }}'
           LDFLAGS="-w -s -linkmode external -extldflags '-static' -X github.com/mhsanaei/3x-ui/v3/internal/config.buildCommit=${GITHUB_SHA::8} -X github.com/mhsanaei/3x-ui/v3/internal/config.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           go build -buildvcs=true -ldflags "$LDFLAGS" -o xui-release .
           file xui-release
-          if ldd xui-release 2>&1 | grep -vq 'not a dynamic executable'; then
-            echo 'panel binary is not static' >&2
-            exit 1
-          fi
 
-      - name: Build custom Xray-core amd64
+      - name: Test custom Xray limiter on host arch
+        if: matrix.arch == 'amd64'
+        working-directory: xray-core
+        run: go test ./app/limiter ./common/protocol
+
+      - name: Build custom Xray-core
         working-directory: xray-core
         run: |
+          set -euxo pipefail
           export CGO_ENABLED=0
           export GOOS=linux
-          export GOARCH=amd64
-          go test ./app/limiter ./common/protocol
+          export GOARCH='${{ steps.toolchain.outputs.goarch }}'
+          if [[ -n '${{ steps.toolchain.outputs.goarm }}' ]]; then
+            export GOARM='${{ steps.toolchain.outputs.goarm }}'
+          fi
           go build -trimpath -ldflags='-s -w' -o ../xray-speedlimit ./main
-          ../xray-speedlimit version | head -n 5
+          file ../xray-speedlimit
 
       - name: Assemble package
         run: |
           set -euxo pipefail
+          ARCH='${{ matrix.arch }}'
           mkdir -p x-ui/bin
           cp xui-release x-ui/x-ui
           cp x-ui.service.debian x-ui/
           cp x-ui.service.arch x-ui/
           cp x-ui.service.rhel x-ui/
           cp x-ui.sh x-ui/
-          cp xray-speedlimit x-ui/bin/xray-linux-amd64
-          chmod 755 x-ui/x-ui x-ui/x-ui.sh x-ui/bin/xray-linux-amd64
+          cp xray-speedlimit "x-ui/bin/xray-linux-${ARCH}"
+          chmod 755 x-ui/x-ui x-ui/x-ui.sh "x-ui/bin/xray-linux-${ARCH}"
 
           curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
             -o x-ui/bin/geoip.dat \
@@ -138,38 +193,65 @@ jobs:
           panel_commit=${GITHUB_SHA}
           xray_base=v26.7.28
           xray_commit=05f4c02c8a5ab773a0c8c5bfab79759cced08fe7
-          arch=amd64
+          arch=${ARCH}
           limits=aggregate-per-client-upload-download-mbps
-          ux=zh-cn-one-click-manager-with-backup-status-rollback
+          ux=zh-cn-one-click-manager-with-backup-status-rollback-doctor-autoarch
           EOF
 
-          tar -zcf x-ui-linux-amd64.tar.gz x-ui
-          sha256sum x-ui-linux-amd64.tar.gz > x-ui-linux-amd64.tar.gz.sha256
+          tar -zcf "x-ui-linux-${ARCH}.tar.gz" x-ui
+          sha256sum "x-ui-linux-${ARCH}.tar.gz" > "x-ui-linux-${ARCH}.tar.gz.sha256"
 
       - name: Package smoke checks
         run: |
           set -euxo pipefail
+          ARCH='${{ matrix.arch }}'
           rm -rf /tmp/xui-package-check
           mkdir -p /tmp/xui-package-check
-          tar -xzf x-ui-linux-amd64.tar.gz -C /tmp/xui-package-check
+          tar -xzf "x-ui-linux-${ARCH}.tar.gz" -C /tmp/xui-package-check
           test -x /tmp/xui-package-check/x-ui/x-ui
-          test -x /tmp/xui-package-check/x-ui/bin/xray-linux-amd64
+          test -x "/tmp/xui-package-check/x-ui/bin/xray-linux-${ARCH}"
           test -f /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
           grep -q 'real-client-speed-limit-v1' /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
-          grep -q 'zh-cn-one-click-manager-with-backup-status-rollback' /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
+          grep -q "arch=${ARCH}" /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
+          grep -q 'autoarch' /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
           grep -q 'REAL_SPEEDLIMIT_V1_MENU_GUARD' /tmp/xui-package-check/x-ui/x-ui.sh
           grep -q 'install-speedlimit.sh) update' /tmp/xui-package-check/x-ui/x-ui.sh
           grep -q '真限速测试版已禁用“安装旧版”' /tmp/xui-package-check/x-ui/x-ui.sh
-          /tmp/xui-package-check/x-ui/bin/xray-linux-amd64 version | head -n 5
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: real-speedlimit-v1-amd64
+          name: real-speedlimit-v1-${{ matrix.arch }}
           path: |
-            x-ui-linux-amd64.tar.gz
-            x-ui-linux-amd64.tar.gz.sha256
+            x-ui-linux-${{ matrix.arch }}.tar.gz
+            x-ui-linux-${{ matrix.arch }}.tar.gz.sha256
           retention-days: 14
+
+  publish:
+    name: publish-dev-latest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 3X-UI fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all architecture packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: real-speedlimit-v1-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release set
+        run: |
+          set -euxo pipefail
+          for arch in amd64 arm64 armv7 armv6 armv5 386 s390x; do
+            test -s "dist/x-ui-linux-${arch}.tar.gz"
+            test -s "dist/x-ui-linux-${arch}.tar.gz.sha256"
+            (cd dist && sha256sum -c "x-ui-linux-${arch}.tar.gz.sha256")
+          done
 
       - name: Publish rolling dev-latest prerelease
         env:
@@ -181,21 +263,18 @@ jobs:
           git tag -f dev-latest "$GITHUB_SHA"
           git push --force origin refs/tags/dev-latest
 
-          NOTES='实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28。支持客户端级上下行聚合限速，并吸收中文面板的易用性思路，提供中文一键安装/更新/备份/状态/回滚；普通 x-ui 更新入口也锁定在自定义通道，避免误换回官方 Xray。请勿直接覆盖 X-Panel 生产机。'
+          NOTES='实验性多架构测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28。安装脚本自动识别 amd64/arm64/armv7/armv6/armv5/386/s390x 并下载对应真限速包；支持客户端级上下行聚合限速、中文一键安装/更新/备份/状态/Doctor/回滚。请勿直接覆盖 X-Panel 生产机。'
           if gh release view dev-latest >/dev/null 2>&1; then
             gh release edit dev-latest \
-              --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
+              --title '3X-UI Real Speed Limit V1 - Multi-Arch Rolling Test Build' \
               --notes "$NOTES" \
               --prerelease
           else
             gh release create dev-latest \
               --target "$GITHUB_SHA" \
-              --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
+              --title '3X-UI Real Speed Limit V1 - Multi-Arch Rolling Test Build' \
               --notes "$NOTES" \
               --prerelease
           fi
 
-          gh release upload dev-latest \
-            x-ui-linux-amd64.tar.gz \
-            x-ui-linux-amd64.tar.gz.sha256 \
-            --clobber
+          gh release upload dev-latest dist/* --clobber
