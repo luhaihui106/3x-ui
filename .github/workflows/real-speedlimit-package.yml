@@ -60,19 +60,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools curl tar unzip ca-certificates
 
-      - name: Verify custom source and one-click manager
+      - name: Verify custom source and Chinese one-click manager
         run: |
+          set -euxo pipefail
           grep -q 'replace github.com/xtls/xray-core => github.com/luhaihui106/Xray-core' go.mod
           grep -q 'speed_limit_up_mbps' xray-core/common/protocol/user.proto
           grep -q 'speed_limit_down_mbps' xray-core/common/protocol/user.proto
           bash -n install-speedlimit.sh
           bash -n x-ui.sh
           grep -q 'REAL_SPEEDLIMIT_V1_MENU_GUARD' x-ui.sh
+          grep -q 'install-speedlimit.sh) install' x-ui.sh
           grep -q 'install-speedlimit.sh) update' x-ui.sh
-          if grep -q 'MHSanaei/3x-ui/main/update.sh' x-ui.sh; then
-            echo 'custom menu still contains an upstream update path' >&2
-            exit 1
-          fi
+          grep -q '真限速测试版已禁用“安装旧版”' x-ui.sh
+          grep -q 'xui-speedlimit update' x-ui.sh
+          for forbidden in \
+            'raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh' \
+            'github.com/MHSanaei/3x-ui/raw/main/x-ui.sh' \
+            'raw.githubusercontent.com/mhsanaei/3x-ui/v$tag_version/install.sh'; do
+            if grep -Fq "$forbidden" x-ui.sh; then
+              echo "custom menu still contains upstream escape hatch: $forbidden" >&2
+              exit 1
+            fi
+          done
 
       - name: Build frontend
         working-directory: frontend
@@ -116,7 +125,6 @@ jobs:
           cp xray-speedlimit x-ui/bin/xray-linux-amd64
           chmod 755 x-ui/x-ui x-ui/x-ui.sh x-ui/bin/xray-linux-amd64
 
-          # Keep upstream data assets, but never replace our custom xray binary.
           curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
             -o x-ui/bin/geoip.dat \
             https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
@@ -132,6 +140,7 @@ jobs:
           xray_commit=05f4c02c8a5ab773a0c8c5bfab79759cced08fe7
           arch=amd64
           limits=aggregate-per-client-upload-download-mbps
+          ux=zh-cn-one-click-manager-with-backup-status-rollback
           EOF
 
           tar -zcf x-ui-linux-amd64.tar.gz x-ui
@@ -147,8 +156,10 @@ jobs:
           test -x /tmp/xui-package-check/x-ui/bin/xray-linux-amd64
           test -f /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
           grep -q 'real-client-speed-limit-v1' /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
+          grep -q 'zh-cn-one-click-manager-with-backup-status-rollback' /tmp/xui-package-check/x-ui/bin/REAL_SPEEDLIMIT_V1
           grep -q 'REAL_SPEEDLIMIT_V1_MENU_GUARD' /tmp/xui-package-check/x-ui/x-ui.sh
           grep -q 'install-speedlimit.sh) update' /tmp/xui-package-check/x-ui/x-ui.sh
+          grep -q '真限速测试版已禁用“安装旧版”' /tmp/xui-package-check/x-ui/x-ui.sh
           /tmp/xui-package-check/x-ui/bin/xray-linux-amd64 version | head -n 5
 
       - name: Upload workflow artifact
@@ -170,16 +181,17 @@ jobs:
           git tag -f dev-latest "$GITHUB_SHA"
           git push --force origin refs/tags/dev-latest
 
+          NOTES='实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28。支持客户端级上下行聚合限速，并吸收中文面板的易用性思路，提供中文一键安装/更新/备份/状态/回滚；普通 x-ui 更新入口也锁定在自定义通道，避免误换回官方 Xray。请勿直接覆盖 X-Panel 生产机。'
           if gh release view dev-latest >/dev/null 2>&1; then
             gh release edit dev-latest \
               --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
-              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速，并提供中文一键安装/更新/备份/状态/回滚入口。请勿直接覆盖 X-Panel 生产机。' \
+              --notes "$NOTES" \
               --prerelease
           else
             gh release create dev-latest \
               --target "$GITHUB_SHA" \
               --title '3X-UI Real Speed Limit V1 - Rolling Test Build' \
-              --notes '实验性 amd64 测试构建：3X-UI v3.7.0 + 自定义 Xray-core v26.7.28，支持客户端级上下行聚合限速，并提供中文一键安装/更新/备份/状态/回滚入口。请勿直接覆盖 X-Panel 生产机。' \
+              --notes "$NOTES" \
               --prerelease
           fi
 
